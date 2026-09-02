@@ -1,41 +1,80 @@
-# Traffic Sign Recognition and Model Compression via Knowledge Distillation
+# Knowledge Distillation for Traffic Sign Recognition
 
-## 📋 Overview
-A project focused on maximizing the performance of Traffic Sign Recognition (GTSRB)—a core vision technology for autonomous driving and robotics—while executing **model compression** tailored for resource-constrained robotic environments. By implementing a **Knowledge Distillation (KD)** pipeline, the project successfully transferred knowledge from a high-capacity Teacher model to a lightweight Student model, exploring the optimal trade-off between computational efficiency and predictive accuracy.
+This project evaluates knowledge distillation as a model-compression technique for traffic sign recognition. A MobileNetV2 teacher transfers its output distribution to a compact, depthwise-separable CNN trained on the German Traffic Sign Recognition Benchmark (GTSRB). The experiments compare the teacher, a student trained with hard labels, and nine distilled students across accuracy, parameter count, inference latency, and class-level errors.
 
-## 💻 Jupyter Notebook Source Code
-👉 [Click here to view the full interactive notebook via Kaggle](https://www.kaggle.com/code/dongmyungpark/gtsrb)
+The complete experiment is available in [`gtsrb.ipynb`](./gtsrb.ipynb) and as a [Kaggle notebook](https://www.kaggle.com/code/dongmyungpark/gtsrb).
 
-## 🛠 Tech Stack
-- **Language:** Python
-- **Frameworks & Libraries:** PyTorch, Torchvision
-- **Architecture:** CNN, Knowledge Distillation (KD) Pipeline
-- **Dataset:** GTSRB (German Traffic Sign Recognition Benchmark)
-- **Domain Concepts:** Model Compression, Robotic Perception, Embedded/On-Device AI
+## Results
 
-## 💡 Key Features & Engineering
+| Model | Parameters | Accuracy | Latency (batch size 1) |
+| --- | ---: | ---: | ---: |
+| MobileNetV2 teacher | 2,313,067 | 88.37% | Not measured |
+| Student baseline | 34,406 | 54.61% | 54.01 ± 2.96 ms/image |
+| Distilled student (`T=10`, `alpha=0.3`) | 34,406 | 80.97% | 55.19 ± 3.79 ms/image |
 
-### 1. Knowledge Distillation Pipeline Implementation
-- **Teacher-Student Architecture:** Guided the training of a lightweight Student model utilizing *soft labels* extracted from a highly complex, pre-trained Teacher model.
-- **Custom Loss Optimization:** Implemented and optimized a custom KD Loss function, enabling the Student model to learn inter-class relationships and underlying distributions (*Dark Knowledge*) rather than merely memorizing hard targets.
+The best distilled student improves on the baseline by 26.36 percentage points while retaining the same architecture and parameter count. It reaches 91.6% of the teacher's accuracy with approximately 67 times fewer parameters. Across the nine distillation settings, measured latency ranged from 53.68 to 55.19 ms per image.
 
-### 2. Robotic Perception System Optimization & Analysis (`34212-Lab-S-Report.pdf`)
-- **SOTA Trend Analysis:** Conducted an in-depth review of Deep Neural Network (DNN) trends in modern robotics, actively addressing critical bottlenecks such as annotation scarcity and domain shift.
-- **Visual-Semantic Evaluation:** Analyzed the root causes of misclassifications through the lens of visual similarity and semantic structure, proposing robust reliability measures for safety-critical robotic systems.
+The class-level analysis found a larger mean improvement for speed-limit signs (classes 0-8) than for the remaining classes: +33.11 percentage points compared with +23.44 percentage points. Some directional-sign classes regressed, indicating that visually similar classes do not always provide a beneficial distillation signal.
 
-### 3. Class-Specific Performance Enhancement
-- **Targeted Speed Limit Analysis:** Specifically monitored and optimized performance metrics for speed limit signs (0~120km/h), which are hyper-critical for autonomous driving safety.
-- **Quantitative Improvement:** Empirically verified significant accuracy percentage point (pp) gains in speed limit classes for the KD Student model compared to a standard lightweight baseline model.
+All values above are taken from the saved notebook outputs. The notebook uses the official GTSRB test split as `val_ds` during model selection, so these figures should be treated as experimental comparisons rather than estimates from an untouched final test set. Latency measurements are specific to the recorded Kaggle environment and include framework prediction overhead.
 
-## 🔥 Core Engineering Competencies
+## Method
 
-### 1. Model Compression for On-Device AI
-- Successfully executed model reduction strategies to ensure real-time inference capabilities on resource-constrained hardware (embedded systems/robotics) while strictly minimizing accuracy degradation.
+### Dataset and preprocessing
 
-### 2. Granular Model Evaluation & Debugging
-- Went beyond baseline accuracy metrics by conducting comprehensive Confusion Matrix analyses and visual structural evaluations to identify model vulnerabilities and engineer technically robust solutions.
+- GTSRB: 43 traffic-sign classes
+- 39,209 training images and 12,630 test images
+- Images resized to 96 × 96 and normalized to `[0, 1]`
+- Inverse-frequency class weights used to address class imbalance
+- Fixed random seed (`10879360`) used throughout the experiments
 
-## 📊 Results & Impact
-- **Teacher Model:** Achieved peak baseline accuracy by leveraging deep architectural complexity.
-- **Standard Student (Baseline):** Exhibited expected accuracy limitations and capacity bottlenecks due to reduced parameters.
-- **KD Student:** **Significantly outperformed the Standard baseline**, demonstrating exceptional complex reasoning capabilities and achieving near-Teacher accuracy, particularly in critical autonomous driving classes (e.g., speed limits).
+### Models
+
+The teacher uses an ImageNet-pretrained MobileNetV2 backbone. The final 60 backbone layers are fine-tuned, followed by global average pooling, dropout, and a 43-class output layer.
+
+The student is a 34,406-parameter CNN composed of three depthwise-separable convolution blocks, batch normalization, pooling, global average pooling, and a small dense classifier. The same student architecture is used for the baseline and every distillation run.
+
+### Distillation
+
+The student loss combines sparse categorical cross-entropy on the ground-truth labels with KL divergence between the temperature-scaled teacher and student predictions:
+
+```text
+loss = alpha * hard_loss
+     + (1 - alpha) * temperature^2 * soft_loss
+```
+
+The notebook evaluates a 3 × 3 grid of hyperparameters:
+
+- Temperature: `3`, `5`, `10`
+- Hard-label weight (`alpha`): `0.1`, `0.3`, `0.5`
+
+The best recorded configuration is `temperature=10` and `alpha=0.3`.
+
+## Running the notebook
+
+The notebook was executed with Python 3.12 and TensorFlow 2.19 on a Kaggle GPU runtime. Kaggle is the simplest way to reproduce the experiment because the notebook downloads the dataset through `kagglehub` and the saved metadata already references a GPU-enabled environment.
+
+To run it locally, create an environment and install the required packages:
+
+```bash
+python -m venv .venv
+```
+
+Activate the environment, then install the dependencies:
+
+```bash
+python -m pip install tensorflow==2.19.0 kagglehub numpy pandas matplotlib scikit-learn jupyter
+jupyter notebook gtsrb.ipynb
+```
+
+Local execution requires internet access for the GTSRB dataset and the pretrained MobileNetV2 weights. A CUDA-capable GPU is recommended; the recorded end-to-end notebook run took approximately 56 minutes on a Tesla P100.
+
+## Repository contents
+
+| File | Description |
+| --- | --- |
+| [`gtsrb.ipynb`](./gtsrb.ipynb) | Data preparation, model training, hyperparameter search, latency measurement, and error analysis |
+| [`34212-Lab-S-Report.pdf`](./34212-Lab-S-Report.pdf) | Five-page coursework report covering the robotics context, methodology, and findings |
+| [`COMP34212_Coursework_2026.pdf`](./COMP34212_Coursework_2026.pdf) | Coursework specification and marking criteria |
+
+Running the notebook also produces comparison and confusion-matrix figures in the current working directory.
